@@ -120,7 +120,7 @@ const (
 )
 
 // PathElement identifies one mapping or sequence edge. Paths are ephemeral
-// and valid only during a CollectionMemberFilter call.
+// and valid only during the filter call that receives them.
 type PathElement struct {
 	Kind  PathElementKind
 	Key   string
@@ -151,6 +151,24 @@ type CollectionMember struct {
 // TrafficDiff fork delta: this opt-in hook bounds selected composed trees
 // while preserving the existing scanner, resolver, and grammar.
 type CollectionMemberFilter func(CollectionMember) bool
+
+// MappingValue describes a parsed mapping key immediately before its value is
+// composed. Path and Key are ephemeral and valid only during the callback.
+type MappingValue struct {
+	Path     []PathElement
+	ParentID uint64
+	Index    int
+	Key      *Node
+	KeyOrder uint64
+}
+
+// MappingValueFilter returns whether a mapping pair may retain its composed
+// value and descendants. Parsing and recursive collection callbacks still run
+// when it returns false.
+//
+// TrafficDiff fork delta: this opt-in pre-value hook bounds values whose key
+// has already established a closed-shape or duplicate counterexample.
+type MappingValueFilter func(MappingValue) bool
 
 // NewDecoder returns a new decoder that reads from r.
 //
@@ -195,6 +213,12 @@ func (dec *Decoder) SetRootSequenceItemFilter(key string, filter SequenceItemFil
 // A nil filter preserves ordinary Decoder behavior byte-for-byte.
 func (dec *Decoder) SetCollectionMemberFilter(filter CollectionMemberFilter) {
 	dec.parser.collectionMemberFilter = filter
+}
+
+// SetMappingValueFilter installs an opt-in pre-value composition filter. A nil
+// filter preserves ordinary Decoder behavior byte-for-byte.
+func (dec *Decoder) SetMappingValueFilter(filter MappingValueFilter) {
+	dec.parser.mappingValueFilter = filter
 }
 
 // Decode reads the next YAML-encoded value from its input

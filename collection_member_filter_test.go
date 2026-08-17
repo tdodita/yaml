@@ -84,6 +84,7 @@ func TestCollectionMemberFilterNilPreservesOrdinaryDecode(t *testing.T) {
 	ordinary := NewDecoder(strings.NewReader(input))
 	filtered := NewDecoder(strings.NewReader(input))
 	filtered.SetCollectionMemberFilter(nil)
+	filtered.SetMappingValueFilter(nil)
 	for document := 0; document < 2; document++ {
 		var want, got Node
 		if err := ordinary.Decode(&want); err != nil {
@@ -113,6 +114,51 @@ func TestCollectionMemberFilterPreservesDedentedFootComments(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered Decode() = %#v, want ordinary %#v", got, want)
+	}
+}
+
+func TestMappingValueFilterSuppressesDescendantRetentionBeforeComposition(t *testing.T) {
+	input := "keep: value\ndrop: {nested: [&inside one, two]}\nafter: *inside\n"
+	decoder := NewDecoder(strings.NewReader(input))
+	var events []string
+	decoder.SetMappingValueFilter(func(value MappingValue) bool {
+		if len(value.Path) == 1 && value.Path[0].Key == "drop" {
+			events = append(events, "drop-key")
+			return false
+		}
+		return true
+	})
+	decoder.SetCollectionMemberFilter(func(member CollectionMember) bool {
+		if len(member.Path) > 1 && member.Path[0].Key == "drop" {
+			events = append(events, "drop-child")
+		}
+		return true
+	})
+
+	var document Node
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if len(events) < 2 || events[0] != "drop-key" || events[1] != "drop-child" {
+		t.Fatalf("filter events = %#v, want pre-value decision before recursive observation", events)
+	}
+	root := document.Content[0]
+	if len(root.Content) != 4 || root.Content[0].Value != "keep" || root.Content[2].Value != "after" {
+		t.Fatalf("filtered root = %#v, want drop pair absent", root)
+	}
+	after := root.Content[3]
+	if after.Kind != AliasNode || after.Alias == nil || len(after.Alias.Content) != 0 {
+		t.Fatalf("alias after prefiltered subtree = %#v, want known lightweight sentinel", after)
+	}
+}
+
+func TestMappingValueFilterDoesNotMaskMalformedDiscardedValue(t *testing.T) {
+	decoder := NewDecoder(strings.NewReader("root: [{}, {]\n"))
+	decoder.SetMappingValueFilter(func(MappingValue) bool { return false })
+	decoder.SetCollectionMemberFilter(func(CollectionMember) bool { return true })
+	var document Node
+	if err := decoder.Decode(&document); err == nil {
+		t.Fatal("Decode() error = nil, want malformed YAML failure")
 	}
 }
 

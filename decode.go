@@ -41,6 +41,8 @@ type parser struct {
 	rootSequenceItemFilters map[string]SequenceItemFilter
 	filteredItemAnchors     *[]string
 	collectionMemberFilter  CollectionMemberFilter
+	mappingValueFilter      MappingValueFilter
+	discardCollectionDepth  uint64
 	collectionPath          []PathElement
 	nextCollectionID        uint64
 	nextNodeOrder           uint64
@@ -274,7 +276,7 @@ func (p *parser) scalar() *Node {
 }
 
 func (p *parser) sequence(filter SequenceItemFilter) *Node {
-	if p.collectionMemberFilter != nil {
+	if p.collectionMemberFilter != nil || p.mappingValueFilter != nil {
 		return p.filteredSequence(filter)
 	}
 	n := p.node(SequenceNode, seqTag, string(p.event.tag), "")
@@ -331,8 +333,14 @@ func (p *parser) filteredSequence(filter SequenceItemFilter) *Node {
 			ValueOrder: valueOrder,
 			Last:       p.peek() == yaml_SEQUENCE_END_EVENT,
 		}
-		retain := p.collectionMemberFilter(member)
+		retain := true
+		if p.collectionMemberFilter != nil {
+			retain = p.collectionMemberFilter(member)
+		}
 		if filter != nil && !filter(index, item) {
+			retain = false
+		}
+		if p.discardCollectionDepth > 0 {
 			retain = false
 		}
 		if retain {
@@ -366,7 +374,7 @@ func (p *parser) discardFilteredAnchors(anchors []string) {
 var filteredSequenceAnchor = &Node{}
 
 func (p *parser) mapping(documentRoot bool) *Node {
-	if p.collectionMemberFilter != nil {
+	if p.collectionMemberFilter != nil || p.mappingValueFilter != nil {
 		return p.filteredMapping(documentRoot)
 	}
 	n := p.node(MappingNode, mapTag, string(p.event.tag), "")
@@ -451,6 +459,16 @@ func (p *parser) filteredMapping(documentRoot bool) *Node {
 			valuePath.Key = k.Value
 		}
 		p.collectionPath = append(p.collectionPath, valuePath)
+		preRetain := true
+		if p.mappingValueFilter != nil {
+			preRetain = p.mappingValueFilter(MappingValue{
+				Path:     p.collectionPath,
+				ParentID: parentID,
+				Index:    index,
+				Key:      k,
+				KeyOrder: keyOrder,
+			})
+		}
 		var valueAnchors []string
 		previousValueAnchors := p.filteredItemAnchors
 		p.filteredItemAnchors = &valueAnchors
@@ -458,7 +476,13 @@ func (p *parser) filteredMapping(documentRoot bool) *Node {
 		if documentRoot && exactKey {
 			sequenceFilter = p.rootSequenceItemFilters[k.Value]
 		}
+		if !preRetain {
+			p.discardCollectionDepth++
+		}
 		v, valueOrder := p.parseWithOrder(sequenceFilter)
+		if !preRetain {
+			p.discardCollectionDepth--
+		}
 		p.filteredItemAnchors = previousValueAnchors
 		if k.FootComment == "" && v.FootComment != "" {
 			k.FootComment = v.FootComment
@@ -481,7 +505,11 @@ func (p *parser) filteredMapping(documentRoot bool) *Node {
 			ValueOrder: valueOrder,
 			Last:       p.peek() == yaml_MAPPING_END_EVENT,
 		}
-		if p.collectionMemberFilter(member) {
+		retain := preRetain && p.discardCollectionDepth == 0
+		if p.collectionMemberFilter != nil && !p.collectionMemberFilter(member) {
+			retain = false
+		}
+		if retain {
 			n.Content = append(n.Content, k, v)
 			p.bubbleFilteredAnchors(previousKeyAnchors, keyAnchors)
 			p.bubbleFilteredAnchors(previousValueAnchors, valueAnchors)
