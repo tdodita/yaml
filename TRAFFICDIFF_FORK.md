@@ -2,9 +2,9 @@
 
 Copyright 2026 Teodor Dodita. Licensed under Apache-2.0.
 
-This public dependency fork exists only to give TrafficDiff an opt-in,
-pre-parent-composition sequence-item retention seam. Ordinary yaml.v3 decoder
-behavior remains unchanged when the seam is not installed.
+This public dependency fork exists only to give TrafficDiff opt-in,
+pre-parent-composition collection-member retention seams. Ordinary yaml.v3
+decoder behavior remains unchanged when no seam is installed.
 
 ## Source identity
 
@@ -20,20 +20,26 @@ The upstream `LICENSE` and `NOTICE` files are preserved byte-for-byte.
 ## Narrow delta
 
 - `go.mod` gives the fork its direct module identity.
-- `yaml.go` exports `SequenceItemFilter` and
-  `Decoder.SetRootSequenceItemFilter`.
+- `yaml.go` exports the original exact-root `SequenceItemFilter` plus one
+  recursive `CollectionMemberFilter` carrying ephemeral logical paths,
+  original indexes, parent identities, preorder tokens, and collection-end
+  facts.
 - `decode.go` invokes registered filters after each selected exact root-sequence
-  item is composed but before it is attached to the parent tree. Dropped anchor
-  targets become lightweight sentinels so known and unknown aliases remain
-  distinct without retaining discarded subtrees.
+  item or recursive collection member is composed but before it is attached to
+  the parent tree. Nested filters run even below an ancestor that is later
+  discarded. Dropped anchor targets become lightweight sentinels so known and
+  unknown aliases remain distinct without retaining discarded subtrees.
 - Focused tests cover default identity, root-only selection, block and flow
-  forms, original indexes, aliases, malformed later input, later documents,
-  and bounded parent retention. Existing external-package test imports follow
-  the fork module identity, and `go.sum` pins the unchanged test dependency.
+  forms, recursive paths, original indexes, preorder and collection-end facts,
+  aliases, malformed later input, later documents, and bounded parent
+  retention. Existing external-package test imports follow the fork module
+  identity, and `go.sum` pins the unchanged test dependency.
 
 The scanner, parser grammar, scalar resolver, encoder, emitter, and ordinary
-unmarshal behavior are not modified. This fork adds no YAML grammar, validation
-framework, product behavior, network access, platform-specific code, or release.
+unmarshal behavior are not modified. The fork remains schema-neutral:
+TrafficDiff owns its closed DNS draft schema, validation, error precedence, and
+retention decisions. This fork adds no YAML grammar, product behavior, network
+access, platform-specific code, or release.
 
 ## Ownership and security updates
 

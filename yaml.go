@@ -105,6 +105,53 @@ type Decoder struct {
 // preserving the existing scanner, resolver, and per-item composition.
 type SequenceItemFilter func(index int, item *Node) bool
 
+// PathElementKind identifies one collection edge in a node's logical path.
+type PathElementKind uint8
+
+const (
+	// MappingKeyPath identifies a mapping key node. Key is empty and Index is
+	// the original zero-based mapping-pair position.
+	MappingKeyPath PathElementKind = iota + 1
+	// MappingValuePath identifies a mapping value. Key and Exact describe the
+	// decoded key when it is an exact string scalar.
+	MappingValuePath
+	// SequenceItemPath identifies an item at its original zero-based index.
+	SequenceItemPath
+)
+
+// PathElement identifies one mapping or sequence edge. Paths are ephemeral
+// and valid only during a CollectionMemberFilter call.
+type PathElement struct {
+	Kind  PathElementKind
+	Key   string
+	Index int
+	Exact bool
+}
+
+// CollectionMember describes one fully parsed mapping pair or sequence item
+// immediately before attachment to its parent. Path and all Node pointers are
+// ephemeral and valid only during the callback. Orders are monotonic preorder
+// tokens within the decoder. Last marks the final member of a nonempty parent.
+type CollectionMember struct {
+	Path       []PathElement
+	ParentKind Kind
+	ParentID   uint64
+	Index      int
+	Key        *Node
+	Value      *Node
+	KeyOrder   uint64
+	ValueOrder uint64
+	Last       bool
+}
+
+// CollectionMemberFilter returns whether a parsed member is attached to its
+// parent. It is invoked recursively, including below an ancestor that may
+// later be discarded.
+//
+// TrafficDiff fork delta: this opt-in hook bounds selected composed trees
+// while preserving the existing scanner, resolver, and grammar.
+type CollectionMemberFilter func(CollectionMember) bool
+
 // NewDecoder returns a new decoder that reads from r.
 //
 // The decoder introduces its own buffering and may read
@@ -142,6 +189,12 @@ func (dec *Decoder) SetRootSequenceItemFilter(key string, filter SequenceItemFil
 		dec.parser.rootSequenceItemFilters = make(map[string]SequenceItemFilter)
 	}
 	dec.parser.rootSequenceItemFilters[key] = filter
+}
+
+// SetCollectionMemberFilter installs an opt-in recursive composition filter.
+// A nil filter preserves ordinary Decoder behavior byte-for-byte.
+func (dec *Decoder) SetCollectionMemberFilter(filter CollectionMemberFilter) {
+	dec.parser.collectionMemberFilter = filter
 }
 
 // Decode reads the next YAML-encoded value from its input

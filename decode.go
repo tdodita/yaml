@@ -40,6 +40,10 @@ type parser struct {
 	// composing a decoded document's exact root mapping.
 	rootSequenceItemFilters map[string]SequenceItemFilter
 	filteredItemAnchors     *[]string
+	collectionMemberFilter  CollectionMemberFilter
+	collectionPath          []PathElement
+	nextCollectionID        uint64
+	nextNodeOrder           uint64
 }
 
 func newParser(b []byte) *parser {
@@ -152,21 +156,28 @@ func (p *parser) anchor(n *Node, anchor []byte) {
 }
 
 func (p *parser) parse() *Node {
+	node, _ := p.parseWithOrder(nil)
+	return node
+}
+
+func (p *parser) parseWithOrder(sequenceFilter SequenceItemFilter) (*Node, uint64) {
 	p.init()
+	p.nextNodeOrder++
+	order := p.nextNodeOrder
 	switch p.peek() {
 	case yaml_SCALAR_EVENT:
-		return p.scalar()
+		return p.scalar(), order
 	case yaml_ALIAS_EVENT:
-		return p.alias()
+		return p.alias(), order
 	case yaml_MAPPING_START_EVENT:
-		return p.mapping(false)
+		return p.mapping(false), order
 	case yaml_SEQUENCE_START_EVENT:
-		return p.sequence(nil)
+		return p.sequence(sequenceFilter), order
 	case yaml_DOCUMENT_START_EVENT:
-		return p.document()
+		return p.document(), order
 	case yaml_STREAM_END_EVENT:
 		// Happens when attempting to decode an empty buffer.
-		return nil
+		return nil, order
 	case yaml_TAIL_COMMENT_EVENT:
 		panic("internal error: unexpected tail comment event (please report)")
 	default:
@@ -263,6 +274,9 @@ func (p *parser) scalar() *Node {
 }
 
 func (p *parser) sequence(filter SequenceItemFilter) *Node {
+	if p.collectionMemberFilter != nil {
+		return p.filteredSequence(filter)
+	}
 	n := p.node(SequenceNode, seqTag, string(p.event.tag), "")
 	if p.event.sequence_style()&yaml_FLOW_SEQUENCE_STYLE != 0 {
 		n.Style |= FlowStyle
@@ -291,11 +305,70 @@ func (p *parser) sequence(filter SequenceItemFilter) *Node {
 	return n
 }
 
+func (p *parser) filteredSequence(filter SequenceItemFilter) *Node {
+	n := p.node(SequenceNode, seqTag, string(p.event.tag), "")
+	if p.event.sequence_style()&yaml_FLOW_SEQUENCE_STYLE != 0 {
+		n.Style |= FlowStyle
+	}
+	p.anchor(n, p.event.anchor)
+	p.nextCollectionID++
+	parentID := p.nextCollectionID
+	p.expect(yaml_SEQUENCE_START_EVENT)
+	for index := 0; p.peek() != yaml_SEQUENCE_END_EVENT; index++ {
+		pathLength := len(p.collectionPath)
+		p.collectionPath = append(p.collectionPath, PathElement{Kind: SequenceItemPath, Index: index})
+		var itemAnchors []string
+		previousItemAnchors := p.filteredItemAnchors
+		p.filteredItemAnchors = &itemAnchors
+		item, valueOrder := p.parseWithOrder(nil)
+		p.filteredItemAnchors = previousItemAnchors
+		member := CollectionMember{
+			Path:       p.collectionPath,
+			ParentKind: SequenceNode,
+			ParentID:   parentID,
+			Index:      index,
+			Value:      item,
+			ValueOrder: valueOrder,
+			Last:       p.peek() == yaml_SEQUENCE_END_EVENT,
+		}
+		retain := p.collectionMemberFilter(member)
+		if filter != nil && !filter(index, item) {
+			retain = false
+		}
+		if retain {
+			n.Content = append(n.Content, item)
+			p.bubbleFilteredAnchors(previousItemAnchors, itemAnchors)
+		} else {
+			p.discardFilteredAnchors(itemAnchors)
+		}
+		p.collectionPath = p.collectionPath[:pathLength]
+	}
+	n.LineComment = string(p.event.line_comment)
+	n.FootComment = string(p.event.foot_comment)
+	p.expect(yaml_SEQUENCE_END_EVENT)
+	return n
+}
+
+func (p *parser) bubbleFilteredAnchors(parent *[]string, anchors []string) {
+	if parent != nil {
+		*parent = append(*parent, anchors...)
+	}
+}
+
+func (p *parser) discardFilteredAnchors(anchors []string) {
+	for _, anchor := range anchors {
+		p.anchors[anchor] = filteredSequenceAnchor
+	}
+}
+
 // filteredSequenceAnchor preserves known-versus-unknown alias parsing without
 // retaining a subtree that an installed root-sequence filter discarded.
 var filteredSequenceAnchor = &Node{}
 
 func (p *parser) mapping(documentRoot bool) *Node {
+	if p.collectionMemberFilter != nil {
+		return p.filteredMapping(documentRoot)
+	}
 	n := p.node(MappingNode, mapTag, string(p.event.tag), "")
 	block := true
 	if p.event.mapping_style()&yaml_FLOW_MAPPING_STYLE != 0 {
@@ -334,6 +407,89 @@ func (p *parser) mapping(documentRoot bool) *Node {
 			}
 			p.expect(yaml_TAIL_COMMENT_EVENT)
 		}
+	}
+	n.LineComment = string(p.event.line_comment)
+	n.FootComment = string(p.event.foot_comment)
+	if n.Style&FlowStyle == 0 && n.FootComment != "" && len(n.Content) > 1 {
+		n.Content[len(n.Content)-2].FootComment = n.FootComment
+		n.FootComment = ""
+	}
+	p.expect(yaml_MAPPING_END_EVENT)
+	return n
+}
+
+func (p *parser) filteredMapping(documentRoot bool) *Node {
+	n := p.node(MappingNode, mapTag, string(p.event.tag), "")
+	block := true
+	if p.event.mapping_style()&yaml_FLOW_MAPPING_STYLE != 0 {
+		block = false
+		n.Style |= FlowStyle
+	}
+	p.anchor(n, p.event.anchor)
+	p.nextCollectionID++
+	parentID := p.nextCollectionID
+	p.expect(yaml_MAPPING_START_EVENT)
+	for index := 0; p.peek() != yaml_MAPPING_END_EVENT; index++ {
+		pathLength := len(p.collectionPath)
+		p.collectionPath = append(p.collectionPath, PathElement{Kind: MappingKeyPath, Index: index})
+		var keyAnchors []string
+		previousKeyAnchors := p.filteredItemAnchors
+		p.filteredItemAnchors = &keyAnchors
+		k, keyOrder := p.parseWithOrder(nil)
+		p.filteredItemAnchors = previousKeyAnchors
+		p.collectionPath = p.collectionPath[:pathLength]
+		if block && k.FootComment != "" {
+			if len(n.Content) > 2 {
+				n.Content[len(n.Content)-3].FootComment = k.FootComment
+				k.FootComment = ""
+			}
+		}
+
+		exactKey := k.Kind == ScalarNode && k.Tag == strTag
+		valuePath := PathElement{Kind: MappingValuePath, Index: index, Exact: exactKey}
+		if exactKey {
+			valuePath.Key = k.Value
+		}
+		p.collectionPath = append(p.collectionPath, valuePath)
+		var valueAnchors []string
+		previousValueAnchors := p.filteredItemAnchors
+		p.filteredItemAnchors = &valueAnchors
+		var sequenceFilter SequenceItemFilter
+		if documentRoot && exactKey {
+			sequenceFilter = p.rootSequenceItemFilters[k.Value]
+		}
+		v, valueOrder := p.parseWithOrder(sequenceFilter)
+		p.filteredItemAnchors = previousValueAnchors
+		if k.FootComment == "" && v.FootComment != "" {
+			k.FootComment = v.FootComment
+			v.FootComment = ""
+		}
+		if p.peek() == yaml_TAIL_COMMENT_EVENT {
+			if k.FootComment == "" {
+				k.FootComment = string(p.event.foot_comment)
+			}
+			p.expect(yaml_TAIL_COMMENT_EVENT)
+		}
+		member := CollectionMember{
+			Path:       p.collectionPath,
+			ParentKind: MappingNode,
+			ParentID:   parentID,
+			Index:      index,
+			Key:        k,
+			Value:      v,
+			KeyOrder:   keyOrder,
+			ValueOrder: valueOrder,
+			Last:       p.peek() == yaml_MAPPING_END_EVENT,
+		}
+		if p.collectionMemberFilter(member) {
+			n.Content = append(n.Content, k, v)
+			p.bubbleFilteredAnchors(previousKeyAnchors, keyAnchors)
+			p.bubbleFilteredAnchors(previousValueAnchors, valueAnchors)
+		} else {
+			p.discardFilteredAnchors(keyAnchors)
+			p.discardFilteredAnchors(valueAnchors)
+		}
+		p.collectionPath = p.collectionPath[:pathLength]
 	}
 	n.LineComment = string(p.event.line_comment)
 	n.FootComment = string(p.event.foot_comment)
