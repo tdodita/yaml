@@ -98,6 +98,24 @@ func TestCollectionMemberFilterNilPreservesOrdinaryDecode(t *testing.T) {
 	}
 }
 
+func TestCollectionMemberFilterPreservesDedentedFootComments(t *testing.T) {
+	input := "a:\n  b: c\n# foot\n\nd: e\n"
+	ordinary := NewDecoder(strings.NewReader(input))
+	filtered := NewDecoder(strings.NewReader(input))
+	filtered.SetCollectionMemberFilter(func(CollectionMember) bool { return true })
+
+	var want, got Node
+	if err := ordinary.Decode(&want); err != nil {
+		t.Fatalf("ordinary Decode() error = %v", err)
+	}
+	if err := filtered.Decode(&got); err != nil {
+		t.Fatalf("filtered Decode() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered Decode() = %#v, want ordinary %#v", got, want)
+	}
+}
+
 func TestCollectionMemberFilterDoesNotMaskMalformedDroppedMember(t *testing.T) {
 	decoder := NewDecoder(strings.NewReader("root: [{}, {]\n"))
 	decoder.SetCollectionMemberFilter(func(CollectionMember) bool { return false })

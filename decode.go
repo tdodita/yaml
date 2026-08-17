@@ -439,8 +439,8 @@ func (p *parser) filteredMapping(documentRoot bool) *Node {
 		p.filteredItemAnchors = previousKeyAnchors
 		p.collectionPath = p.collectionPath[:pathLength]
 		if block && k.FootComment != "" {
-			if len(n.Content) > 2 {
-				n.Content[len(n.Content)-3].FootComment = k.FootComment
+			if len(n.Content) >= 2 {
+				n.Content[len(n.Content)-2].FootComment = k.FootComment
 				k.FootComment = ""
 			}
 		}
