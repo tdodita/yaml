@@ -19,6 +19,8 @@
 //
 //   https://github.com/go-yaml/yaml
 //
+// TrafficDiff fork delta: the opt-in retained-tree filter is maintained at
+// https://github.com/tdodita/yaml; see TRAFFICDIFF_FORK.md for its exact base.
 package yaml
 
 import (
@@ -95,6 +97,14 @@ type Decoder struct {
 	knownFields bool
 }
 
+// SequenceItemFilter may retain or discard a fully parsed item immediately
+// before it is attached to a selected root sequence. The index is the item's
+// original zero-based position in that sequence.
+//
+// TrafficDiff fork delta: this opt-in hook bounds parent-tree retention while
+// preserving the existing scanner, resolver, and per-item composition.
+type SequenceItemFilter func(index int, item *Node) bool
+
 // NewDecoder returns a new decoder that reads from r.
 //
 // The decoder introduces its own buffering and may read
@@ -109,6 +119,18 @@ func NewDecoder(r io.Reader) *Decoder {
 // exist as fields in the struct being decoded into.
 func (dec *Decoder) KnownFields(enable bool) {
 	dec.knownFields = enable
+}
+
+// SetRootSequenceItemFilter configures an opt-in filter for sequence items
+// whose sequence is the value of key in a decoded document's root mapping.
+// The filter remains active for subsequent Decode calls until reset with a
+// nil filter. Nested mappings and other root keys are unaffected.
+//
+// TrafficDiff fork delta: ordinary Decoder behavior is unchanged when filter
+// is nil.
+func (dec *Decoder) SetRootSequenceItemFilter(key string, filter SequenceItemFilter) {
+	dec.parser.rootSequenceItemFilterKey = key
+	dec.parser.rootSequenceItemFilter = filter
 }
 
 // Decode reads the next YAML-encoded value from its input

@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/tdodita/yaml/v3"
 	. "gopkg.in/check.v1"
-	"gopkg.in/yaml.v3"
 	"io"
 	"strings"
 )

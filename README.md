@@ -1,5 +1,10 @@
 # YAML support for the Go language
 
+> **TrafficDiff fork:** this repository is an exact-source dependency fork,
+> not the upstream yaml.v3 module documented below. Consumers of the narrow
+> retained-tree filtering seam must import `github.com/tdodita/yaml/v3` at an
+> exact commit-derived pseudo-version. See [TRAFFICDIFF_FORK.md](TRAFFICDIFF_FORK.md).
+
 Introduction
 ------------
 
@@ -147,4 +152,3 @@ b:
   - 3
   - 4
 ```
-

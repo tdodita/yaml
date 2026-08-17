@@ -36,6 +36,11 @@ type parser struct {
 	anchors  map[string]*Node
 	doneInit bool
 	textless bool
+	// TrafficDiff fork delta: the opt-in filter is consulted only while
+	// composing a decoded document's exact root mapping.
+	rootSequenceItemFilterKey string
+	rootSequenceItemFilter    SequenceItemFilter
+	filteredItemAnchors       *[]string
 }
 
 func newParser(b []byte) *parser {
@@ -141,6 +146,9 @@ func (p *parser) anchor(n *Node, anchor []byte) {
 	if anchor != nil {
 		n.Anchor = string(anchor)
 		p.anchors[n.Anchor] = n
+		if p.filteredItemAnchors != nil {
+			*p.filteredItemAnchors = append(*p.filteredItemAnchors, n.Anchor)
+		}
 	}
 }
 
@@ -152,9 +160,9 @@ func (p *parser) parse() *Node {
 	case yaml_ALIAS_EVENT:
 		return p.alias()
 	case yaml_MAPPING_START_EVENT:
-		return p.mapping()
+		return p.mapping(false)
 	case yaml_SEQUENCE_START_EVENT:
-		return p.sequence()
+		return p.sequence(nil)
 	case yaml_DOCUMENT_START_EVENT:
 		return p.document()
 	case yaml_STREAM_END_EVENT:
@@ -203,7 +211,11 @@ func (p *parser) document() *Node {
 	n := p.node(DocumentNode, "", "", "")
 	p.doc = n
 	p.expect(yaml_DOCUMENT_START_EVENT)
-	p.parseChild(n)
+	if p.peek() == yaml_MAPPING_START_EVENT {
+		n.Content = append(n.Content, p.mapping(true))
+	} else {
+		p.parseChild(n)
+	}
 	if p.peek() == yaml_DOCUMENT_END_EVENT {
 		n.FootComment = string(p.event.foot_comment)
 	}
@@ -251,15 +263,28 @@ func (p *parser) scalar() *Node {
 	return n
 }
 
-func (p *parser) sequence() *Node {
+func (p *parser) sequence(filter SequenceItemFilter) *Node {
 	n := p.node(SequenceNode, seqTag, string(p.event.tag), "")
 	if p.event.sequence_style()&yaml_FLOW_SEQUENCE_STYLE != 0 {
 		n.Style |= FlowStyle
 	}
 	p.anchor(n, p.event.anchor)
 	p.expect(yaml_SEQUENCE_START_EVENT)
-	for p.peek() != yaml_SEQUENCE_END_EVENT {
-		p.parseChild(n)
+	for index := 0; p.peek() != yaml_SEQUENCE_END_EVENT; index++ {
+		var itemAnchors []string
+		previousItemAnchors := p.filteredItemAnchors
+		if filter != nil {
+			p.filteredItemAnchors = &itemAnchors
+		}
+		item := p.parse()
+		p.filteredItemAnchors = previousItemAnchors
+		if filter == nil || filter(index, item) {
+			n.Content = append(n.Content, item)
+		} else {
+			for _, anchor := range itemAnchors {
+				p.anchors[anchor] = filteredSequenceAnchor
+			}
+		}
 	}
 	n.LineComment = string(p.event.line_comment)
 	n.FootComment = string(p.event.foot_comment)
@@ -267,7 +292,11 @@ func (p *parser) sequence() *Node {
 	return n
 }
 
-func (p *parser) mapping() *Node {
+// filteredSequenceAnchor preserves known-versus-unknown alias parsing without
+// retaining a subtree that an installed root-sequence filter discarded.
+var filteredSequenceAnchor = &Node{}
+
+func (p *parser) mapping(documentRoot bool) *Node {
 	n := p.node(MappingNode, mapTag, string(p.event.tag), "")
 	block := true
 	if p.event.mapping_style()&yaml_FLOW_MAPPING_STYLE != 0 {
@@ -285,7 +314,13 @@ func (p *parser) mapping() *Node {
 				k.FootComment = ""
 			}
 		}
-		v := p.parseChild(n)
+		var v *Node
+		if documentRoot && p.rootSequenceItemFilter != nil && k.Kind == ScalarNode && k.Tag == strTag && k.Value == p.rootSequenceItemFilterKey && p.peek() == yaml_SEQUENCE_START_EVENT {
+			v = p.sequence(p.rootSequenceItemFilter)
+			n.Content = append(n.Content, v)
+		} else {
+			v = p.parseChild(n)
+		}
 		if k.FootComment == "" && v.FootComment != "" {
 			k.FootComment = v.FootComment
 			v.FootComment = ""
