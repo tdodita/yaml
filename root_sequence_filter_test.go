@@ -66,6 +66,52 @@ cases: [second-zero, second-one, second-two]
 	}
 }
 
+func TestRootSequenceItemFilterSupportsMultipleExactRootKeys(t *testing.T) {
+	const input = `cases: [case-zero, case-one, case-two]
+association_declarations: [association-zero, association-one, association-two]
+nested:
+  cases: [nested-zero, nested-one, nested-two]
+---
+cases: [second-case-zero, second-case-one, second-case-two]
+association_declarations: [second-association-zero, second-association-one, second-association-two]
+`
+
+	decoder := yaml.NewDecoder(strings.NewReader(input))
+	decoder.SetRootSequenceItemFilter("cases", func(index int, item *yaml.Node) bool {
+		return index == 0
+	})
+	decoder.SetRootSequenceItemFilter("association_declarations", func(index int, item *yaml.Node) bool {
+		return index == 0
+	})
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		t.Fatal(err)
+	}
+	root := document.Content[0]
+	if got := mappingValue(t, root, "cases"); len(got.Content) != 1 || got.Content[0].Value != "case-zero" {
+		t.Fatalf("filtered root cases = %#v, want only first item", got)
+	}
+	if got := mappingValue(t, root, "association_declarations"); len(got.Content) != 1 || got.Content[0].Value != "association-zero" {
+		t.Fatalf("filtered root associations = %#v, want only first item", got)
+	}
+	if got := mappingValue(t, mappingValue(t, root, "nested"), "cases"); len(got.Content) != 3 {
+		t.Fatalf("nested cases = %#v, want all three unfiltered items", got)
+	}
+
+	decoder.SetRootSequenceItemFilter("", nil)
+	var second yaml.Node
+	if err := decoder.Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	secondRoot := second.Content[0]
+	if got := mappingValue(t, secondRoot, "cases"); len(got.Content) != 3 {
+		t.Fatalf("second-document cases = %#v, want all three after clearing filters", got)
+	}
+	if got := mappingValue(t, secondRoot, "association_declarations"); len(got.Content) != 3 {
+		t.Fatalf("second-document associations = %#v, want all three after clearing filters", got)
+	}
+}
+
 func TestRootSequenceItemFilterPreservesFlowAndAliasParsing(t *testing.T) {
 	const input = `cases: [&base {value: one}, *base, {value: three}]
 `

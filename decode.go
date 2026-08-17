@@ -38,9 +38,8 @@ type parser struct {
 	textless bool
 	// TrafficDiff fork delta: the opt-in filter is consulted only while
 	// composing a decoded document's exact root mapping.
-	rootSequenceItemFilterKey string
-	rootSequenceItemFilter    SequenceItemFilter
-	filteredItemAnchors       *[]string
+	rootSequenceItemFilters map[string]SequenceItemFilter
+	filteredItemAnchors     *[]string
 }
 
 func newParser(b []byte) *parser {
@@ -315,8 +314,12 @@ func (p *parser) mapping(documentRoot bool) *Node {
 			}
 		}
 		var v *Node
-		if documentRoot && p.rootSequenceItemFilter != nil && k.Kind == ScalarNode && k.Tag == strTag && k.Value == p.rootSequenceItemFilterKey && p.peek() == yaml_SEQUENCE_START_EVENT {
-			v = p.sequence(p.rootSequenceItemFilter)
+		var filter SequenceItemFilter
+		if documentRoot && k.Kind == ScalarNode && k.Tag == strTag {
+			filter = p.rootSequenceItemFilters[k.Value]
+		}
+		if filter != nil && p.peek() == yaml_SEQUENCE_START_EVENT {
+			v = p.sequence(filter)
 			n.Content = append(n.Content, v)
 		} else {
 			v = p.parseChild(n)

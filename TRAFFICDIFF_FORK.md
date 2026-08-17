@@ -22,10 +22,10 @@ The upstream `LICENSE` and `NOTICE` files are preserved byte-for-byte.
 - `go.mod` gives the fork its direct module identity.
 - `yaml.go` exports `SequenceItemFilter` and
   `Decoder.SetRootSequenceItemFilter`.
-- `decode.go` invokes that filter after each selected root-sequence item is
-  composed but before it is attached to the parent tree. Dropped anchor targets
-  become lightweight sentinels so known and unknown aliases remain distinct
-  without retaining discarded subtrees.
+- `decode.go` invokes registered filters after each selected exact root-sequence
+  item is composed but before it is attached to the parent tree. Dropped anchor
+  targets become lightweight sentinels so known and unknown aliases remain
+  distinct without retaining discarded subtrees.
 - Focused tests cover default identity, root-only selection, block and flow
   forms, original indexes, aliases, malformed later input, later documents,
   and bounded parent retention. Existing external-package test imports follow

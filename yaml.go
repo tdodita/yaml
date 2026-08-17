@@ -121,16 +121,27 @@ func (dec *Decoder) KnownFields(enable bool) {
 	dec.knownFields = enable
 }
 
-// SetRootSequenceItemFilter configures an opt-in filter for sequence items
-// whose sequence is the value of key in a decoded document's root mapping.
-// The filter remains active for subsequent Decode calls until reset with a
-// nil filter. Nested mappings and other root keys are unaffected.
+// SetRootSequenceItemFilter registers or replaces an opt-in filter for
+// sequence items whose sequence is the value of key in a decoded document's
+// root mapping. Filters remain active for subsequent Decode calls. A nil
+// filter removes key; an empty key with a nil filter removes every registered
+// filter. Nested mappings and unregistered root keys are unaffected.
 //
-// TrafficDiff fork delta: ordinary Decoder behavior is unchanged when filter
-// is nil.
+// TrafficDiff fork delta: ordinary Decoder behavior is unchanged when no
+// filters are registered.
 func (dec *Decoder) SetRootSequenceItemFilter(key string, filter SequenceItemFilter) {
-	dec.parser.rootSequenceItemFilterKey = key
-	dec.parser.rootSequenceItemFilter = filter
+	if filter == nil {
+		if key == "" {
+			dec.parser.rootSequenceItemFilters = nil
+		} else {
+			delete(dec.parser.rootSequenceItemFilters, key)
+		}
+		return
+	}
+	if dec.parser.rootSequenceItemFilters == nil {
+		dec.parser.rootSequenceItemFilters = make(map[string]SequenceItemFilter)
+	}
+	dec.parser.rootSequenceItemFilters[key] = filter
 }
 
 // Decode reads the next YAML-encoded value from its input
