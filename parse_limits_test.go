@@ -16,6 +16,7 @@
 package yaml
 
 import (
+	"io"
 	"strings"
 	"testing"
 )
@@ -51,5 +52,52 @@ func TestParseLimitsConfiguration(t *testing.T) {
 				t.Fatal("limits changed after Decode attempt")
 			}
 		})
+	}
+}
+
+func TestParseLimitsCopiedDecoderStartLock(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+	}{
+		{"success", "a\n---\nb\n"},
+		{"eof", ""},
+		{"syntax", "["},
+	} {
+		for _, decodeCopy := range []bool{false, true} {
+			name := tc.name + "-original-decodes"
+			if decodeCopy {
+				name = tc.name + "-copy-decodes"
+			}
+			t.Run(name, func(t *testing.T) {
+				original := limitedDecoder(t, tc.input, ParseLimits{MaxDocuments: 1})
+				copied := *original
+				active, other := original, &copied
+				if decodeCopy {
+					active, other = other, active
+				}
+				var out Node
+				err := active.Decode(&out)
+				switch tc.name {
+				case "success":
+					if err != nil {
+						t.Fatal(err)
+					}
+				case "eof":
+					if err != io.EOF {
+						t.Fatalf("wanted EOF, got %v", err)
+					}
+				case "syntax":
+					if err == nil || err == io.EOF || err == ErrParseLimit {
+						t.Fatalf("wanted syntax error, got %v", err)
+					}
+				}
+				if err := other.SetParseLimits(ParseLimits{}); err == nil {
+					t.Error("copy reconfigured shared parser after Decode attempt")
+				}
+				if tc.name == "success" {
+					assertLimitRefusal(t, active)
+				}
+			})
+		}
 	}
 }

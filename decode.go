@@ -35,6 +35,7 @@ type parser struct {
 	doc      *Node
 	anchors  map[string]*Node
 	doneInit bool
+	started  bool
 	textless bool
 	// TrafficDiff fork delta: the opt-in filter is consulted only while
 	// composing a decoded document's exact root mapping.

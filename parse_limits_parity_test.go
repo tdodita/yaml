@@ -16,7 +16,6 @@
 package yaml
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -101,8 +100,7 @@ func TestParseLimitsKnownFieldsAndMalformedTail(t *testing.T) {
 			X string `yaml:"x"`
 		}
 		err := dec.Decode(&out)
-		var typeErr *TypeError
-		if !errors.As(err, &typeErr) || out.X != "value" || !strings.Contains(err.Error(), "field unknown not found") {
+		if _, ok := err.(*TypeError); !ok || out.X != "value" || !strings.Contains(err.Error(), "field unknown not found") {
 			t.Fatalf("KnownFields behavior: value=%q err=%v", out.X, err)
 		}
 		if err := dec.SetParseLimits(ParseLimits{}); err == nil {
@@ -114,7 +112,7 @@ func TestParseLimitsKnownFieldsAndMalformedTail(t *testing.T) {
 	if err := dec.Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if err := dec.Decode(&out); err == nil || err == io.EOF || errors.Is(err, ErrParseLimit) {
+	if err := dec.Decode(&out); err == nil || err == io.EOF || err == ErrParseLimit {
 		t.Fatalf("malformed tail lost syntax refusal: %v", err)
 	}
 }

@@ -16,7 +16,6 @@
 package yaml
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -36,7 +35,7 @@ func assertLimitRefusal(t *testing.T, dec *Decoder) {
 	t.Helper()
 	out := Node{Kind: ScalarNode, Value: "unchanged"}
 	err := dec.Decode(&out)
-	if !errors.Is(err, ErrParseLimit) {
+	if err != ErrParseLimit {
 		t.Fatalf("wanted parse-limit refusal, got %v", err)
 	}
 	if out.Kind != ScalarNode || out.Value != "unchanged" || len(out.Content) != 0 {

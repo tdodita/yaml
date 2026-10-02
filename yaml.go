@@ -95,7 +95,6 @@ func Unmarshal(in []byte, out interface{}) (err error) {
 type Decoder struct {
 	parser      *parser
 	knownFields bool
-	started     bool
 }
 
 // SequenceItemFilter may retain or discard a fully parsed item immediately
@@ -228,7 +227,7 @@ func (dec *Decoder) SetMappingValueFilter(filter MappingValueFilter) {
 // See the documentation for Unmarshal for details about the
 // conversion of YAML into a Go value.
 func (dec *Decoder) Decode(v interface{}) (err error) {
-	dec.started = true
+	dec.parser.started = true
 	if dec.parser.parser.parse_limit_error != nil {
 		return dec.parser.parser.parse_limit_error
 	}

@@ -43,7 +43,7 @@ type ParseLimits struct {
 // attempt, including one returning EOF or an error. A limit failure is
 // terminal for the decoder; a partially composed document is not decoded.
 func (dec *Decoder) SetParseLimits(limits ParseLimits) error {
-	if dec.started {
+	if dec.parser.started {
 		return errors.New("yaml: parsing limits cannot change after decoding starts")
 	}
 	if limits.MaxNodes < 0 || limits.MaxDepth < 0 || limits.MaxDocuments < 0 {
