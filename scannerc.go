@@ -900,6 +900,9 @@ func yaml_simple_key_is_valid(parser *yaml_parser_t, simple_key *yaml_simple_key
 				"while scanning a simple key", simple_key.mark,
 				"could not find expected ':'")
 		}
+		if parser.parsingLimitsEnabled() {
+			delete(parser.simple_keys_by_tok, simple_key.token_number)
+		}
 		simple_key.possible = false
 		return false, true
 	}
@@ -957,6 +960,11 @@ const max_flow_level = 10000
 
 // Increase the flow level and resize the simple key list if needed.
 func yaml_parser_increase_flow_level(parser *yaml_parser_t) bool {
+	if parser.parsingLimitsEnabled() && parser.flow_level >= max_flow_level {
+		return yaml_parser_set_scanner_error(parser,
+			"while increasing flow level", parser.mark,
+			fmt.Sprintf("exceeded max depth of %d", max_flow_level))
+	}
 	// Reset the simple key on the next level.
 	parser.simple_keys = append(parser.simple_keys, yaml_simple_key_t{
 		possible:     false,
@@ -999,6 +1007,11 @@ func yaml_parser_roll_indent(parser *yaml_parser_t, column, number int, typ yaml
 	}
 
 	if parser.indent < column {
+		if parser.parsingLimitsEnabled() && len(parser.indents) >= max_indents {
+			return yaml_parser_set_scanner_error(parser,
+				"while increasing indent level", parser.simple_keys[len(parser.simple_keys)-1].mark,
+				fmt.Sprintf("exceeded max depth of %d", max_indents))
+		}
 		// Push the current indentation level to the stack and set the new
 		// indentation level.
 		parser.indents = append(parser.indents, parser.indent)
@@ -1438,6 +1451,12 @@ func yaml_parser_fetch_value(parser *yaml_parser_t) bool {
 
 // Produce the ALIAS or ANCHOR token.
 func yaml_parser_fetch_anchor(parser *yaml_parser_t, typ yaml_token_type_t) bool {
+	if typ == yaml_ANCHOR_TOKEN && parser.parse_limits.RejectAnchors {
+		return parser.refuseParseLimit()
+	}
+	if typ == yaml_ALIAS_TOKEN && parser.parse_limits.RejectAliases {
+		return parser.refuseParseLimit()
+	}
 	// An anchor or an alias could be a simple key.
 	if !yaml_parser_save_simple_key(parser) {
 		return false

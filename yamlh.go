@@ -553,6 +553,8 @@ type yaml_alias_data_t struct {
 // All members are internal. Manage the structure using the
 // yaml_parser_ family of functions.
 type yaml_parser_t struct {
+	parse_limits      ParseLimits // Opt-in composition and syntax limits.
+	parse_limit_error error       // Sticky refusal, distinct from grammar errors.
 
 	// Error handling
 
