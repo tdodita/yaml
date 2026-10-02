@@ -2,9 +2,9 @@
 
 Copyright 2026 Teodor Dodita. Licensed under Apache-2.0.
 
-This public dependency fork exists only to give TrafficDiff opt-in,
-pre-parent-composition collection-member retention seams. Ordinary yaml.v3
-decoder behavior remains unchanged when no seam is installed.
+This public dependency fork provides opt-in collection-member retention seams
+and pre-composition parsing limits. Ordinary yaml.v3 decoder behavior remains
+unchanged when no seam is installed.
 
 ## Source identity
 
@@ -20,6 +20,10 @@ The upstream `LICENSE` and `NOTICE` files are preserved byte-for-byte.
 ## Narrow delta
 
 - `go.mod` gives the fork its direct module identity.
+- `parse_limits.go` adds optional stream-cumulative node/depth/document limits
+  and anchor/alias syntax refusal, configured before decoding starts.
+  `ErrParseLimit` identifies sticky limit failures. See
+  [PARSING_LIMITS.md](PARSING_LIMITS.md) for semantics and state/payload limits.
 - `yaml.go` exports the original exact-root `SequenceItemFilter` plus one
   recursive `CollectionMemberFilter` carrying ephemeral logical paths,
   original indexes, parent identities, preorder tokens, and collection-end
@@ -38,11 +42,14 @@ The upstream `LICENSE` and `NOTICE` files are preserved byte-for-byte.
   bounded parent retention. Existing external-package test imports follow the
   fork module identity, and `go.sum` pins the unchanged test dependency.
 
-The scanner, parser grammar, scalar resolver, encoder, emitter, and ordinary
-unmarshal behavior are not modified. The fork remains schema-neutral:
-TrafficDiff owns its closed DNS draft schema, validation, error precedence, and
-retention decisions. This fork adds no YAML grammar, product behavior, network
-access, platform-specific code, or release.
+The scanner refuses configured anchor/alias syntax before name retention and
+checks its existing fixed stack ceilings before growth when limits are active.
+The compositor charges encountered nodes, including discarded descendants,
+before allocation. Parser grammar, scalar resolver, encoder, emitter and
+ordinary unmarshal behavior remain unchanged. The fork remains schema-neutral;
+callers own schema validation, error precedence and retention decisions. This
+fork adds no YAML grammar, product behavior, network access, platform-specific
+code, or release.
 
 ## Ownership and security updates
 

@@ -19,7 +19,7 @@
 //
 //   https://github.com/go-yaml/yaml
 //
-// TrafficDiff fork delta: the opt-in retained-tree filter is maintained at
+// TrafficDiff fork delta: opt-in composition controls are maintained at
 // https://github.com/tdodita/yaml; see TRAFFICDIFF_FORK.md for its exact base.
 package yaml
 
@@ -227,6 +227,10 @@ func (dec *Decoder) SetMappingValueFilter(filter MappingValueFilter) {
 // See the documentation for Unmarshal for details about the
 // conversion of YAML into a Go value.
 func (dec *Decoder) Decode(v interface{}) (err error) {
+	dec.parser.started = true
+	if dec.parser.parser.parse_limit_error != nil {
+		return dec.parser.parser.parse_limit_error
+	}
 	d := newDecoder()
 	d.knownFields = dec.knownFields
 	defer handleErr(&err)

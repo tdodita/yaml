@@ -35,6 +35,7 @@ type parser struct {
 	doc      *Node
 	anchors  map[string]*Node
 	doneInit bool
+	started  bool
 	textless bool
 	// TrafficDiff fork delta: the opt-in filter is consulted only while
 	// composing a decoded document's exact root mapping.
@@ -46,10 +47,13 @@ type parser struct {
 	collectionPath          []PathElement
 	nextCollectionID        uint64
 	nextNodeOrder           uint64
+	parseNodes              uint64
+	parseDocuments          uint64
+	parseDepth              int
 }
 
 func newParser(b []byte) *parser {
-	p := parser{}
+	p := parser{parseDepth: -1}
 	if !yaml_parser_initialize(&p.parser) {
 		panic("failed to initialize YAML emitter")
 	}
@@ -61,7 +65,7 @@ func newParser(b []byte) *parser {
 }
 
 func newParserFromReader(r io.Reader) *parser {
-	p := parser{}
+	p := parser{parseDepth: -1}
 	if !yaml_parser_initialize(&p.parser) {
 		panic("failed to initialize YAML emitter")
 	}
@@ -120,6 +124,9 @@ func (p *parser) peek() yaml_event_type_t {
 }
 
 func (p *parser) fail() {
+	if p.parser.parse_limit_error != nil {
+		fail(p.parser.parse_limit_error)
+	}
 	var where string
 	var line int
 	if p.parser.context_mark.line != 0 {
@@ -188,6 +195,7 @@ func (p *parser) parseWithOrder(sequenceFilter SequenceItemFilter) (*Node, uint6
 }
 
 func (p *parser) node(kind Kind, defaultTag, tag, value string) *Node {
+	p.chargeNode()
 	var style Style
 	if tag != "" && tag != "!" {
 		tag = shortTag(tag)
@@ -220,6 +228,8 @@ func (p *parser) parseChild(parent *Node) *Node {
 }
 
 func (p *parser) document() *Node {
+	p.beginNode(DocumentNode)
+	defer p.endNode()
 	n := p.node(DocumentNode, "", "", "")
 	p.doc = n
 	p.expect(yaml_DOCUMENT_START_EVENT)
@@ -236,6 +246,8 @@ func (p *parser) document() *Node {
 }
 
 func (p *parser) alias() *Node {
+	p.beginNode(AliasNode)
+	defer p.endNode()
 	n := p.node(AliasNode, "", "", string(p.event.anchor))
 	n.Alias = p.anchors[n.Value]
 	if n.Alias == nil {
@@ -246,6 +258,8 @@ func (p *parser) alias() *Node {
 }
 
 func (p *parser) scalar() *Node {
+	p.beginNode(ScalarNode)
+	defer p.endNode()
 	var parsedStyle = p.event.scalar_style()
 	var nodeStyle Style
 	switch {
@@ -276,6 +290,8 @@ func (p *parser) scalar() *Node {
 }
 
 func (p *parser) sequence(filter SequenceItemFilter) *Node {
+	p.beginNode(SequenceNode)
+	defer p.endNode()
 	if p.collectionMemberFilter != nil || p.mappingValueFilter != nil {
 		return p.filteredSequence(filter)
 	}
@@ -374,6 +390,8 @@ func (p *parser) discardFilteredAnchors(anchors []string) {
 var filteredSequenceAnchor = &Node{}
 
 func (p *parser) mapping(documentRoot bool) *Node {
+	p.beginNode(MappingNode)
+	defer p.endNode()
 	if p.collectionMemberFilter != nil || p.mappingValueFilter != nil {
 		return p.filteredMapping(documentRoot)
 	}
